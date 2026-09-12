@@ -144,7 +144,7 @@ echo "  ════════════════════════
 echo "   Set up the relay on: $WHERE"
 echo "  ══════════════════════════════════════════════════════════════════"
 echo
-cat <<'FIN'
+cat <<'END'
   The relay is the meeting point between your phone and the panel from which you
   look for it. It is needed because both are behind a NAT and neither can
   call the other: someone has to have a stable address, and that is this.
@@ -152,7 +152,7 @@ cat <<'FIN'
   It serves a page with the map, the phone's heartbeats and the buttons to make it
   ring, say where it is and lock it.
 
-FIN
+END
 
 # --- 1. check that it can be done --------------------------------------------
 if ! on_target 'command -v systemctl' >/dev/null 2>&1; then
@@ -191,7 +191,7 @@ if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
 fi
 
 # --- 4. the certificate ------------------------------------------------------
-cat <<'FIN'
+cat <<'END'
 
   The relay speaks TLS and nothing else: as soon as you open the port, the panel
   password and the phone's token cross the internet.
@@ -201,7 +201,7 @@ cat <<'FIN'
   accept an exception the first time (the phone keeps its fingerprint when
   pairing, so afterwards it only accepts that one).
 
-FIN
+END
 if [ -z "$NO_PROMPTS" ] && yes_or_no "  Do you already have a certificate for that name?" n; then
 	ask "  Path to the certificate (fullchain.pem): "
 	CERT="$REPLY"
@@ -284,7 +284,7 @@ echo
 echo "     Panel:       https://${IP:-<the-ip-of-that-machine>}:$PORT"
 echo "     Password:    $PASS"
 echo
-cat <<FIN
+cat <<END
   To pair the phone:
 
     1. Open the panel, log in and press "Generate code".
@@ -300,7 +300,7 @@ cat <<FIN
     - The port $PORT on your router, if you want it reachable from the street.
     - No subdomains: the root domain with the port is enough.
 
-FIN
+END
 if [ -z "$CERT" ]; then
 	gray "  Own certificate: the browser will warn the first time. Compare the"
 	gray "  fingerprint with the one that appears in the log:"

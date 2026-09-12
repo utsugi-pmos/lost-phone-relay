@@ -86,8 +86,8 @@ func ensureCert(dataDir string) (certPath, keyPath, fingerprint string, err erro
 	template.IPAddresses = []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
 	if addresses, e := net.InterfaceAddrs(); e == nil {
 		for _, d := range addresses {
-			if red, ok := d.(*net.IPNet); ok && !red.IP.IsLoopback() {
-				template.IPAddresses = append(template.IPAddresses, red.IP)
+			if netw, ok := d.(*net.IPNet); ok && !netw.IP.IsLoopback() {
+				template.IPAddresses = append(template.IPAddresses, netw.IP)
 			}
 		}
 	}
