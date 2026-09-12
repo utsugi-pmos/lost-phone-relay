@@ -1,0 +1,39 @@
+# The one-line path:
+#
+#     LOST_PHONE_PASSWORD='una contrasena larga' docker compose up -d
+#
+# It speaks TLS only, with its own certificate: generated the first time in ./data
+# and reused. At startup it prints its SHA-256 fingerprint -- the phone keeps it
+# when pairing and afterward only accepts that one. Check the log:
+#
+#     docker compose logs relay | grep -A1 Fingerprint
+#
+# That is why the port is really published and not only on 127.0.0.1: there is no
+# proxy here to expose it. If YOU have one in front that already does the TLS, add
+# LOST_PHONE_SIN_TLS=1 and bind it back to 127.0.0.1.
+services:
+  relay:
+    build: .
+    image: lost-phone-relay
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTPS with its own certificate; no proxy to expose it
+    environment:
+      LOST_PHONE_PASSWORD: ${LOST_PHONE_PASSWORD:?a password is required for the panel}
+      # Only if you have a reverse proxy in front that does the TLS.
+      LOST_PHONE_SIN_TLS: ${LOST_PHONE_SIN_TLS:-}
+    volumes:
+      # A NAMED volume, not a directory on disk, and for a concrete reason: the
+      # container runs unprivileged (UID 10001) and a named volume inherits the
+      # owner the image gave /data. With a './data:/data' from your disk, the
+      # relay cannot write its own certificate and serves nothing -- unless you
+      # first do 'chown -R 10001:10001 ./data'.
+      - data:/data
+    # The certificate and the key are written to ./data the first time, so that
+    # volume has to be writable even though the rest of the system is not.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  data:

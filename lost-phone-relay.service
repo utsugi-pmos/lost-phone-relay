@@ -1,0 +1,53 @@
+[Unit]
+# The relay, without Docker: one binary and this unit.
+Description=lost-phone-relay: the meeting point between your phone and your dashboard
+Documentation=file:///opt/lost-phone-relay/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The password goes in an environment file with 600 permissions, not on the
+# command line: anyone with access to the machine can read 'ps'.
+EnvironmentFile=/etc/lost-phone-relay.env
+# It speaks TLS only. Left alone, it generates its certificate in the state
+# directory the first time and reuses it; the fingerprint appears in the log at
+# startup and is the one the phone pins when pairing.
+#
+# IF YOU ALREADY HAVE A REAL CERTIFICATE for your domain, it is better in every
+# way: the browser does not warn, there is no exception to accept and no
+# fingerprint to pin. Uncomment the three lines below and adjust the domain.
+#
+# LoadCredential and not a bare path, and it is not decoration: this service runs
+# with DynamicUser, so it CANNOT read /etc/letsencrypt/live/.../privkey.pem,
+# which is root-owned and 600. systemd reads it ITSELF as root and hands it only
+# to this process, in a directory nobody else sees. Without this you would have to
+# loosen the permissions on the private key of all your domains.
+#
+#LoadCredential=cert:/etc/letsencrypt/live/YOURDOMAIN/fullchain.pem
+#LoadCredential=key:/etc/letsencrypt/live/YOURDOMAIN/privkey.pem
+#Environment=LOST_PHONE_CERT=%d/cert LOST_PHONE_KEY=%d/key
+ExecStart=/opt/lost-phone-relay/lost-phone-relay -data /var/lib/lost-phone-relay
+
+# When the certificate is renewed you have to restart: the credentials are read at
+# startup. A certbot hook does it on its own -- see the README.
+
+DynamicUser=yes
+StateDirectory=lost-phone-relay
+Restart=on-failure
+RestartSec=5
+
+# It needs nothing from the system except its state directory and the network.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

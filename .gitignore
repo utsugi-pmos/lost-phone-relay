@@ -1,0 +1,6 @@
+# The compiled server. 'install' (or the Dockerfile) builds it on the machine
+# that will run it, for that machine's architecture. Committing a binary would
+# mean shipping something nobody can check against the source.
+/lost-phone-relay
+/lost-phone-relay-*
+/build

@@ -1,0 +1,319 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Find the phone</title>
+<!--
+  It opens from anyone's phone, so it is meant for a small screen
+  and a thumb: big buttons, one column, and nothing to load from outside
+  (the server's CSP forbids it, and there would be no guaranteed internet anyway).
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd; --panel: #fff; --fg: #16161a; --soft: #6b6b76;
+    --line: #e3e3ea; --accent: #2d6cdf; --danger: #c0392b; --ok: #1f8a4c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131317; --panel: #1c1c22; --fg: #f2f2f5; --soft: #9a9aa6;
+      --line: #2c2c35; --accent: #6f9dff; --danger: #ff6b5b; --ok: #4cd18a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 1rem; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    max-width: 34rem; margin-inline: auto;
+  }
+  h1 { font-size: 1.3rem; margin: .2rem 0 1rem; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1rem; margin-bottom: 1rem;
+  }
+  .header { display: flex; align-items: baseline; gap: .6rem; }
+  .name { font-weight: 600; font-size: 1.1rem; }
+  .state { font-size: .8rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid var(--line); }
+  .online { color: var(--ok); border-color: currentColor; }
+  .lost { color: var(--soft); }
+  .soft { color: var(--soft); font-size: .88rem; }
+  .link-mapa { display: block; line-height: 0; }
+  .remove { margin: .8rem 0 0; text-align: center; }
+  .remove a { color: var(--soft); font-size: .8rem; }
+  .map {
+    display: block; width: 100%; aspect-ratio: 1 / 1; max-height: 60vh;
+    object-fit: cover; border: 1px solid var(--line); border-radius: 10px;
+    margin-top: .6rem; background: var(--bg);
+  }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .9rem; }
+  button {
+    font: inherit; padding: .8rem .6rem; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--fg); cursor: pointer; min-height: 3rem;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  input {
+    font: inherit; width: 100%; padding: .8rem; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  a { color: var(--accent); }
+  code { font-size: 1.5rem; letter-spacing: .12em; word-break: break-all; }
+  .notice { padding: .7rem .9rem; border-radius: 10px; margin-bottom: 1rem; font-size: .92rem; }
+  .notice.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+  .notice.good { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+  .oculto { display: none; }
+  .pasos { margin: 0 0 .9rem; padding-left: 1.2rem; line-height: 1.6; }
+  .pasos li { margin-bottom: .35rem; }
+  .pasos code { font-size: .95rem; word-break: break-all; }
+  /* Four digits read at a glance from across the table,
+     because they are copied looking from one screen to another. */
+  .code {
+    font-family: ui-monospace, monospace;
+    font-size: 2.6rem;
+    font-weight: 700;
+    letter-spacing: .4em;
+    margin: .4rem 0 .2rem;
+  }
+</style>
+
+<h1>Find the phone</h1>
+<div id="notice" class="notice oculto"></div>
+
+<section id="logIn" class="card oculto">
+  <p class="soft">Panel password.</p>
+  <input id="key" type="password" autocomplete="current-password" enterkeyhint="go">
+  <div class="buttons"><button class="primary" style="grid-column: 1 / -1" onclick="logIn()">Log in</button></div>
+</section>
+
+<div id="panel" class="oculto">
+  <div id="phones"></div>
+
+  <section class="card">
+    <div class="name">Add a phone</div>
+    <ol class="pasos">
+      <li>On the phone, open <strong>Find the phone</strong> (it is in the app drawer, and also in Settings).</li>
+      <li>Scroll to <strong>"Your server"</strong> and turn on <strong>"Talk to my server"</strong>.</li>
+      <li>In the address field type: <code id="myAddress"></code></li>
+      <li>Press <strong>Generate code</strong> below, type the four numbers on the phone and hit <strong>Pair</strong>.</li>
+    </ol>
+    <p class="soft">The code is good for ten minutes, once only, and dies on the third failed attempt.</p>
+    <div id="code"></div>
+    <div class="buttons">
+      <button onclick="parear()">Generate code</button>
+      <button onclick="logOut()">Log out</button>
+    </div>
+  </section>
+</div>
+
+<script>
+// The address to type on the phone is, literally, the one the
+// user is looking at. Taking it from location.origin avoids the classic mistake of
+// mistyping it by hand, and stays correct if tomorrow the relay changes
+// sitio.
+document.addEventListener("DOMContentLoaded", () => {
+  const d = document.getElementById("myAddress");
+  if (d) { d.textContent = location.origin; }
+});
+
+const $ = s => document.querySelector(s);
+let temporizador = null;
+
+function notify(text, clase) {
+  const a = $("#notice");
+  a.textContent = text;
+  a.className = "notice " + clase;
+  setTimeout(() => a.className = "notice oculto", 5000);
+}
+
+async function api(path, cuerpo) {
+  const r = await fetch(path, {
+    method: cuerpo ? "POST" : "GET",
+    headers: cuerpo ? {"Content-Type": "application/json"} : {},
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  if (r.status === 401) { showInput(); throw new Error("session expired"); }
+  if (r.status === 204) return null;
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || "error " + r.status);
+  return data;
+}
+
+function showInput() {
+  $("#logIn").classList.remove("oculto");
+  $("#panel").classList.add("oculto");
+  if (temporizador) { clearInterval(temporizador); temporizador = null; }
+}
+
+function showPanel() {
+  $("#logIn").classList.add("oculto");
+  $("#panel").classList.remove("oculto");
+  refrescar();
+  if (!temporizador) temporizador = setInterval(refrescar, 5000);
+}
+
+async function logIn() {
+  try {
+    await api("/api/login", {password: $("#key").value});
+    $("#key").value = "";
+    showPanel();
+  } catch (e) { notify(e.message, "bad"); }
+}
+
+async function logOut() {
+  try { await api("/api/logout", {}); } catch (e) {}
+  showInput();
+}
+
+function when(iso) {
+  const d = new Date(iso), now = new Date();
+  const seg = Math.round((now - d) / 1000);
+  if (seg < 60) return "hace un momento";
+  if (seg < 3600) return "hace " + Math.round(seg / 60) + " min";
+  if (seg < 86400) return "hace " + Math.round(seg / 3600) + " h";
+  return d.toLocaleString();
+}
+
+// The map and nothing else. The raw coordinates, the cell, the BSSID and "command
+// pending delivery" were there because they helped me debug, not
+// because they help find a phone: whoever opens this wants to see WHERE it is and
+// press a button, not read 214-03/3AFE/07F17CBC.
+//
+// THIS server builds the map and it arrives as an ordinary image (map.go). If it
+// cannot -- no internet on the relay, or OSM down -- it returns 502, onerror
+// swaps in the usual link and the rest of the card stays up.
+// The exact time. The day only if it is not today, otherwise it is noise: in 99% of
+// cases this is looked at the same day the phone is lost.
+function fecha(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "?";
+  const hora = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const hoy = new Date();
+  if (d.toDateString() === hoy.toDateString()) return hora;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + " " + hora;
+}
+
+function renderPosition(p) {
+  if (!p || !p.has_coordinates) {
+    return '<p class="soft">It has not said where it is yet.</p>';
+  }
+  const link = `https://www.openstreetmap.org/?mlat=${p.latitude}&mlon=${p.longitude}#map=17/${p.latitude}/${p.longitude}`;
+  const map = `/api/map?lat=${p.latitude}&lon=${p.longitude}&precision=${p.accuracy_m || 0}`;
+  // The fallback is set from a FUNCTION and not by putting HTML inside the
+  // onerror attribute. That HTML has quotes, the quotes close the attribute
+  // early and the rest ends up painted on the page as loose text
+  // (`"">`, which is exactly what was seen). An attribute is no place for markup.
+  return `<a class="link-mapa" href="${link}" target="_blank" rel="noreferrer"><img
+            class="map" src="${map}" alt="Where it is" onerror="mapFailure(this)"></a>`;
+}
+
+// The map could not arrive: the relay cannot reach OSM, or there is no internet.
+// It is swapped for the usual link and the card stays up -- a map
+// that fails must not take the buttons down with it.
+function mapFailure(img) {
+  const a = img.closest("a");
+  if (!a) return;
+  a.classList.remove("link-mapa");
+  a.textContent = "ver en el map";
+}
+
+// A single line, saying the TWO ages that matter: when it was last
+// heard and when the map point is from. They are not the same, and confusing them
+// is how you end up searching the next street over.
+function contacto(m) {
+  // The TIME, not "a while ago". Whoever opens this is looking for a phone and
+  // needs the fact to decide: "seen 5 min ago" and "seen at 19:42" do not
+  // weigh the same when it is 19:47 and you are watching the street clock.
+  // The relative one goes after, in parentheses, because it saves a mental subtraction.
+  const partes = ["last seen " + fecha(m.last_seen) + " (" + when(m.last_seen) + ")"];
+  // The battery YES, even if the rest of the raw data is gone: a phone at 4%
+  // will power off by itself before long, and that changes what you do right
+  // now -- go for it now, or leave it for later.
+  if (m.last && m.last.battery >= 0) partes.push("battery " + m.last.battery + "%");
+  // And the map age only when it is NOT the last-seen one. They are two
+  // different things -- "still alive" and "is here" -- and confusing them sends you to the
+  // calle equivocada.
+  if (m.last && m.last.has_coordinates) {
+    partes.push(`map from ${fecha(m.last.when)} (${when(m.last.when)}, ±${m.last.accuracy_m} m)`);
+  }
+  return partes.join(" · ");
+}
+
+// Power-off is the only command with no way back: a powered-off phone does not ring, does not say
+// where it is and obeys no one -- not you either, from this very panel. So
+// a thumb-reflex "OK" is not enough: you have to type the word.
+async function powerOff(id, name) {
+  const dicho = prompt(
+    `Vas a APAGAR "${name}".\n\n` +
+    "It stops ringing, stops saying where it is and stops obeying, including you. " +
+    "It cannot be powered back on from here: you have to go to the phone.\n\n" +
+    'Escribe APAGAR para confirmarlo:');
+  if (dicho !== "APAGAR") return;
+  await sendCommand(id, "off");
+}
+
+function pintar(phones) {
+  if (!phones.length) {
+    $("#phones").innerHTML = '<div class="card"><p class="soft">No phone paired yet.</p></div>';
+    return;
+  }
+  $("#phones").innerHTML = phones.map(m => `
+    <section class="card">
+      <div class="header">
+        <span class="name">${m.name}</span>
+      </div>
+      <p class="soft">${contacto(m)}</p>
+      ${renderPosition(m.last)}
+      <div class="buttons">
+        <button class="primary" onclick="sendCommand('${m.id}','ring')">Ring</button>
+        <button onclick="sendCommand('${m.id}','stop')">Stop</button>
+        <button onclick="sendCommand('${m.id}','where')">Where is it?</button>
+        <button onclick="lock('${m.id}')">Lock</button>
+        <button onclick="sendCommand('${m.id}','unlock')">Unlock</button>
+        <button class="danger" onclick="powerOff('${m.id}','${m.name}')">Power off</button>
+      </div>
+      <p class="remove"><a href="#" onclick="forget('${m.id}','${m.name}');return false">Remove this phone from the panel</a></p>
+    </section>`).join("");
+}
+
+async function refrescar() {
+  try { pintar(await api("/api/devices")); } catch (e) {}
+}
+
+async function sendCommand(id, command) {
+  try {
+    await api("/api/command", {id, command});
+    notify("Command sent: " + command + ". It will arrive as soon as the phone shows up.", "good");
+    refrescar();
+  } catch (e) { notify(e.message, "bad"); }
+}
+
+// The lock asks for the message here and not on the phone, because you no longer
+// have the phone: it is the text whoever found it will see.
+async function lock(id) {
+  const message = prompt("What do you want whoever has it to read?\nFor example: \"Lost phone, call 600 123 456\".", "");
+  if (message === null) return;
+  try {
+    await api("/api/command", {id, command: "lock", message});
+    notify("Lock sent. It will arrive as soon as the phone shows up.", "good");
+    refrescar();
+  } catch (e) { notify(e.message, "bad"); }
+}
+
+async function forget(id, name) {
+  if (!confirm("Remove \"" + name + "\"? It will no longer be locatable from here.")) return;
+  try { await api("/api/forget", {id}); refrescar(); } catch (e) { notify(e.message, "bad"); }
+}
+
+async function parear() {
+  try {
+    const r = await api("/api/pair", {});
+    $("#code").innerHTML = `<p class="code">${r.code}</p><p class="soft">Caduca a las ${new Date(r.caduca).toLocaleTimeString()}.</p>`;
+  } catch (e) { notify(e.message, "bad"); }
+}
+
+$("#key").addEventListener("keydown", e => { if (e.key === "Enter") logIn(); });
+
+// If there is already a session, go straight in; if not, ask for the password.
+api("/api/devices").then(m => { $("#logIn").classList.add("oculto"); showPanel(); pintar(m); })
+                   .catch(() => showInput());
+</script>
